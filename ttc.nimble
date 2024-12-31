@@ -12,3 +12,5 @@ bin           = @["ttc"]
 # Dependencies
 
 requires "nim >= 2.0"
+
+requires "nanoid >= 0.2.0"
