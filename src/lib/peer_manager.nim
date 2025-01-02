@@ -1,5 +1,5 @@
-import trackers, utils
-import std/[sequtils, asyncdispatch, strutils, net]
+import trackers, utils, message
+import std/[sequtils, asyncdispatch, strutils, asyncnet, bitops]
 
 type
   HandShake* = object
@@ -66,15 +66,15 @@ proc verify(response: seq[byte], expected: array[20, byte]): bool =
 
   return true
 
-proc performHandshake*(s: Socket, peer: Peer, torr: Torrent): Future[bool] {.async.} =
+proc performHandshake*(s: AsyncSocket, peer: Peer, torr: Torrent): Future[bool] {.async.} =
   await s.connect(peer.ip, Port(peer.port))
 
   let handshake = HandShake(infoHash: torr.infoHash, peerId: torr.peerId)
   let req = handshake.handshakeRequest()
 
-  await s.send(cast[string](req))
+  await s.send($req)
 
-  let response = s.recv(68)
+  let response = await s.recv(68)
 
   if not verify(response.toByteSeq, torr.infoHash):
     echo "handshake failed"
@@ -83,9 +83,20 @@ proc performHandshake*(s: Socket, peer: Peer, torr: Torrent): Future[bool] {.asy
   return true
 
 
-proc sendBitfield(s: Socket, bits: seq[byte]): Future[void] {.async.} =
-  discard
+proc hasPiece*(bitfield: seq[byte], index: int): bool =
+  let byteIndex = index div 8
+  let offset = index mod 8
+  if byteIndex < 0 or byteIndex >= bitfield.len:
+    return false
+  return ((bitfield[byteIndex] shr (7 - offset)) and 1) != 0
 
-proc recvBitfield(s: Socket, pieceCount: int): Future[seq[bool]] {.async.} = discard
+
+proc setPiece*(bitfield: var seq[byte], index: int) =
+  let byteIndex = index div 8
+  let offset = index mod 8
+  if byteIndex < 0 or byteIndex >= bitfield.len:
+    return
+  bitfield[byteIndex] = bitfield[byteIndex] or byte(1 shl (7 - offset))
+
 
 
