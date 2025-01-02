@@ -71,10 +71,9 @@ proc encodeInfoHash(hexHash: string): string =
 
 proc buildAnnounceUrl*(tracker: string, req: TrackerRequest): string =
     var url = parseUri(tracker)
-    let hashed = req.infoHash.encodeInfoHash()
 
     var params = {
-        "info_hash": hashed,
+        "info_hash": req.infoHash.encodeInfoHash(),
         "peer_id": req.peerId,
         "port": $req.port,
         # "uploaded": $req.uploaded,
@@ -107,7 +106,7 @@ proc decodePeers(peerData: string): seq[Peer] =
     peer.ip = $ip1 & "." & $ip2 & "." & $ip3 & "." & $ip4
     
     # Get port (2 bytes in network byte order / big endian)
-    peer.port = (uint16(uint8(peerData[i+4])) shl 8) or uint16(uint8(peerData[i+5]))
+    peer.port = (uint16(peerData[i+4]) shl 8) or uint16(peerData[i+5])
     
     result.add(peer)
 
