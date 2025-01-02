@@ -1,5 +1,6 @@
 import nanoid
 import std/[uri, tables, strutils, sequtils]
+import bencode
 
 type
   AnnounceEvent* = enum
@@ -26,7 +27,7 @@ type
 
   TrackerResponse* = object
     interval*: int
-    minInterval*: int
+    minInterval*: int 
     trackerId*: string
     complete*: int
     incomplete*: int
@@ -93,3 +94,47 @@ proc buildAnnounceUrl*(tracker: string, req: TrackerRequest): string =
     url.query = queryParams.mapIt(it[0] & "=" & it[1]).join("&")
     return $url
 
+proc decodePeers(peerData: string): seq[Peer] =
+  result = @[]
+  # Each peer is 6 bytes: 4 for IP + 2 for port
+  for i in countup(0, peerData.len - 6, 6):
+
+    var peer: Peer
+    let ip1 = uint8(peerData[i+0])
+    let ip2 = uint8(peerData[i+1])
+    let ip3 = uint8(peerData[i+2])
+    let ip4 = uint8(peerData[i+3])
+    peer.ip = $ip1 & "." & $ip2 & "." & $ip3 & "." & $ip4
+    
+    # Get port (2 bytes in network byte order / big endian)
+    peer.port = (uint16(uint8(peerData[i+4])) shl 8) or uint16(uint8(peerData[i+5]))
+    
+    result.add(peer)
+
+proc parseResponse*(response: string): TrackerResponse = 
+  let resp = bdecode(response)
+  
+  result = TrackerResponse(
+    interval: 0,
+    minInterval: 0,
+    trackerId: "",
+    complete: 0,
+    incomplete: 0,
+    peers: @[],
+    warning: "",
+    failureReason: ""
+  )
+
+  for key, val in resp.dictVal:
+    case key
+    of "complete":
+      result.complete = val.intVal
+    of "incomplete":
+      result.incomplete = val.intVal
+    of "interval":
+      result.interval = val.intVal
+    of "min interval":
+      result.minInterval = val.intVal
+    of "peers":
+      result.peers = decodePeers(val.strVal)
+    else: discard
