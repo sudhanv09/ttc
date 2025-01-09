@@ -7,33 +7,31 @@ type
     InfoHash*: string
     PeerId*: string
     Port*: int = 6881
-    Uploaded: int = 0
-    Downloaded: int = 0
-    Left: int = 0 
-    Compact: bool = true
+    Uploaded*: int = 0
+    Downloaded*: int = 0
+    Left*: int = 0 
+    Compact*: bool = true
     Event*: AeEvent
 
   TrackerResp = object
-    Failure: string
-    Warning: string
-    Interval: int
-    MinInterval: int
-    Complete: int
-    Incomplete: int
-    Peers: seq[Peers]
+    Failure*: string
+    Warning*: string
+    Interval*: int
+    MinInterval*: int
+    Complete*: int
+    Incomplete*: int
+    Peers*: seq[TPeers]
 
-  Peers* = object
-    PeerId: string
-    Ip: string
-    Port: int
+  TPeers* = object
+    PeerId*: string
+    Ip*: string
+    Port*: int
 
   AeEvent = enum
     Started
     Stopped
     Completed
    
-
-
 proc build_announce_url(id, info_hash, trackerUrl: string): string =
   var uri = parseUri(trackerUrl)
 
@@ -52,7 +50,7 @@ proc build_announce_url(id, info_hash, trackerUrl: string): string =
   uri.query = queries
   return $uri
 
-proc decode_peers(peer_data: string): Peers =
+proc decode_peers(peer_data: string): TPeers =
   result.Ip = $ord(peer_data[0]).uint8 & "." &
               $ord(peer_data[1]).uint8 & "." &
               $ord(peer_data[2]).uint8 & "." &
@@ -61,7 +59,7 @@ proc decode_peers(peer_data: string): Peers =
   result.Port = (ord(peer_data[4]).int shl 8) or
                 ord(peer_data[5]).int
 
-proc parse_peers(peer_str: string): seq[Peers] =
+proc parse_peers(peer_str: string): seq[TPeers] =
   var offset = 0
   result = @[]
   
@@ -73,7 +71,7 @@ proc parse_peers(peer_str: string): seq[Peers] =
 
 proc parse_response(resp: string): TrackerResp = 
   let bcString = bdecode(resp)
-  var tracker = TrackerResp()
+  var tracker: TrackerResp
   
   for key, item in bcString.dictVal.pairs:
     case key:
@@ -88,9 +86,9 @@ proc parse_response(resp: string): TrackerResp =
       of "peers":
           let peers = parse_peers(item.strVal)
           if peers.len > 0:
-            result.Peers = peers
+            tracker.Peers = peers
 
-    return tracker
+  return tracker
     
 proc send_request(url: string): Future[TrackerResp] {.async.} = 
   try:
@@ -100,15 +98,14 @@ proc send_request(url: string): Future[TrackerResp] {.async.} =
     let body = await req.body
 
     if not body.startsWith("<!D"):
-      return body.parse_response
-  except Exception as e:
-    echo "trouble sending request"
+      return parse_response(body)
+  except Exception:
+    discard
 
 proc connect_trackers*(id: string, magnet: Magnet): Future[seq[TrackerResp]] {.async.} =
   var futures: seq[Future[TrackerResp]] = @[]
 
   for tracker in magnet.Trackers:
-    echo "trying: ", tracker
     let url = build_announce_url(id, magnet.InfoHash, tracker)
     futures.add send_request(url)
 
