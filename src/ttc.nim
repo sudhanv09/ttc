@@ -10,6 +10,5 @@ echo "connecting to trackers"
 var tresp =  waitFor connect_trackers(id, x)
 
 echo "contacting peers"
-echo tresp
 for peer in tresp:
     discard waitFor contact(id, x.InfoHash, peer.Peers)

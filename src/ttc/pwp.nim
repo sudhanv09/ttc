@@ -63,6 +63,25 @@ proc extend_handshake(): seq[byte] =
 
   return msg
 
+proc verify_handshake(response: string, expected: HandShake): bool = 
+  let resp_bytes = response.toBytes
+  if resp_bytes.len != 68:
+    echo "response longer than expected: ", resp_bytes.len
+    return false
+
+  if resp_bytes[1..19] != expected.Identifier.toBytes:
+    echo "Protocol string mismatch"
+    echo "Expected: ", expected.Identifier
+    echo "Received: ", resp_bytes[1..19].fromBytes()
+    return false
+
+  if resp_bytes[28..47] != expected.InfoHash:
+    echo $resp_bytes[28..47]
+    echo "info hash not the same"
+    return false
+
+  return true
+
 proc connect_peer(msg: HandShake, peer: TPeers): Future[string] {.async.} = 
   try:
     var s = newAsyncSocket()
@@ -72,11 +91,12 @@ proc connect_peer(msg: HandShake, peer: TPeers): Future[string] {.async.} =
     await s.send($payload)
 
     let response = await s.recv(68)
-    echo response
-    if response.len != 68:
+    if not verify_handshake(response, msg):
       s.close()
       echo "error. response not as expected"
+      return ""
 
+    echo "success. sending extended msg"
     let ext_msg = extend_handshake()
     await s.send($ext_msg)
 
@@ -94,7 +114,7 @@ proc connect_peer(msg: HandShake, peer: TPeers): Future[string] {.async.} =
     
     # Read extension message
     let extResponse = await s.recv(msgLength.int)
-    echo extResponse
+    echo "extended msg ", extResponse
     s.close()
     return extResponse
   
