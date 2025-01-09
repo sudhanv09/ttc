@@ -20,9 +20,9 @@ type
     MinInterval: int
     Complete: int
     Incomplete: int
-    Peers: Peers
+    Peers: seq[Peers]
 
-  Peers = object
+  Peers* = object
     PeerId: string
     Ip: string
     Port: int
@@ -31,6 +31,7 @@ type
     Started
     Stopped
     Completed
+   
 
 
 proc build_announce_url(id, info_hash, trackerUrl: string): string =
@@ -87,7 +88,7 @@ proc parse_response(resp: string): TrackerResp =
       of "peers":
           let peers = parse_peers(item.strVal)
           if peers.len > 0:
-            result.Peers = peers[0]
+            result.Peers = peers
 
     return tracker
     
@@ -113,4 +114,25 @@ proc connect_trackers*(id: string, magnet: Magnet): Future[seq[TrackerResp]] {.a
 
   return await all(futures)
 
+proc scrape_tracker(tracker, info_hash: string): Future[seq[string]] {.async.} = 
+  var uri = parseUri(tracker)
+  uri.path = "scrape"
+
+  let hashBytes = info_hash.parseHexStr
+  let queries = encodeQuery({
+    "info_hash": hashBytes,
+  })
+
+  uri.query = queries
   
+  var futures: seq[Future[string]] = @[]
+  try:
+    var client = newAsyncHttpClient()
+    var req = await client.get(uri)
+
+    echo await req.body
+    futures.add(req.body)
+  except Exception:
+    echo "unable to scrape"
+
+  return await all(futures)
