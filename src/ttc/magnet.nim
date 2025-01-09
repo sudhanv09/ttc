@@ -14,7 +14,7 @@ proc parse_magnet*(link: string): Magnet =
     let val = i.split("=")
     case val[0]:
       of "xt":
-        mag.InfoHash = val[1]
+        mag.InfoHash = val[1][9..^1]
       of "dn":
         mag.Name = val[1]
       of "tr":
