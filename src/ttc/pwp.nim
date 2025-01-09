@@ -62,3 +62,54 @@ proc extend_handshake(): seq[byte] =
   msg.add(ext_msg)
 
   return msg
+
+proc connect_peer(msg: HandShake, peer: TPeers): Future[string] {.async.} = 
+  try:
+    var s = newAsyncSocket()
+    await s.connect(peer.Ip, Port(peer.Port))
+
+    let payload = init_handshake(msg)
+    await s.send($payload)
+
+    let response = await s.recv(68)
+    echo response
+    if response.len != 68:
+      s.close()
+      echo "error. response not as expected"
+
+    let ext_msg = extend_handshake()
+    await s.send($ext_msg)
+
+    let init_resp = await s.recv(4)
+    if init_resp.len != 4:
+      s.close()
+      return ""
+
+    let msgLength = (
+      (ext_msg[0].uint32 shl 24) or
+      (ext_msg[1].uint32 shl 16) or 
+      (ext_msg[2].uint32 shl 8) or
+      ext_msg[3].uint32
+    )
+    
+    # Read extension message
+    let extResponse = await s.recv(msgLength.int)
+    echo extResponse
+    s.close()
+    return extResponse
+  
+  except Exception as e:
+    echo "unable to connect to peer: ", peer.Ip
+
+proc contact*(id, hash: string, peers: seq[TPeers]): Future[seq[string]] {.async.} = 
+  var futures: seq[Future[string]] = @[]
+  let hobj = HandShake(
+    Identifier: "BitTorrent protocol",
+    InfoHash: hash.toBytesArray(20),
+    PeerId: id.toBytesArray(20)
+    )
+
+  for peer in peers:
+    futures.add(connect_peer(hobj, peer))
+
+  return await all(futures)
