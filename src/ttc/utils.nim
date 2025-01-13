@@ -1,4 +1,4 @@
-import std/[strformat, strutils]
+import std/[strformat, strutils, algorithm]
 import nanoid
 
 proc toByte(c: char): byte =
@@ -10,10 +10,26 @@ proc toBytes*(s: string): seq[byte] =
     result[i] = cast[byte](ord(c))
 
 proc toBytesArray*(s: string, size: static int): array[size, byte] =
-  for i in 0 ..< size:
-    result[i] = 0'u8  # Initialize with zeros
+  result.fill(0'u8)
   for i in 0 ..< min(s.len, size):
     result[i] = s[i].toByte
+
+proc hexStringToBytes*(s: string, size: static int): array[size, byte] =
+  result.fill(0'u8)
+  var cleanHex = s.toUpperAscii()
+  if cleanHex.startsWith("0x"): 
+    cleanHex = cleanHex[2..^1]
+    
+  for i in countup(0, min(cleanHex.len - 1, (size * 2) - 1), 2):
+    if i + 1 < cleanHex.len:
+      let byteIndex = i div 2
+      if byteIndex < size:
+        let hexByte = cleanHex[i..i+1]
+        try:
+          result[byteIndex] = fromHex[uint8](hexByte)
+        except:
+          echo "Failed to convert hex pair: ", hexByte
+          result[byteIndex] = 0'u8
 
 proc fromBytes*(s: seq[byte]): string = 
   if s.len > 0:

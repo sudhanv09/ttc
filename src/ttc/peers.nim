@@ -99,7 +99,7 @@ proc send_request(url: string): Future[TrackerResp] {.async.} =
 
     if not body.startsWith("<!D"):
       return parse_response(body)
-  except Exception as e:
+  except Exception as _:
     discard
 
 proc connect_trackers*(id: string, magnet: Magnet): Future[seq[TrackerResp]] {.async.} =

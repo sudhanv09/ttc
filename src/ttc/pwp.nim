@@ -1,5 +1,5 @@
 import utils, peers
-import std/[tables, asyncnet, asyncdispatch]
+import std/[tables, asyncnet, asyncdispatch, strutils]
 import bencode
 
 type
@@ -8,12 +8,12 @@ type
     InfoHash: array[20, byte]
     PeerId: array[20, byte]
   
-proc init_handshake(handshake: HandShake, extend: bool = false): seq[byte] = 
-  var msg = newSeq[byte](68)
+proc init_handshake(handshake: HandShake, extend: bool = false): array[68, byte] = 
+  var msg: array[68, byte]
   var currPos = 0
 
   # pstr len
-  msg[currPos] = 0x19
+  msg[currPos] = 19'u8
   currPos.inc
 
   # protocol identifier
@@ -23,10 +23,8 @@ proc init_handshake(handshake: HandShake, extend: bool = false): seq[byte] =
   currPos.inc handshake.Identifier.len
 
   # reserved
-  for i in 0..8:
-    msg[currPos + i] = 0'u8
-  if extend:
-    msg[currPos + 5] = 0x10
+  for i in 0..7:
+    msg[currPos + i] = if i == 5 and extend: 20'u8 else: 0'u8
   currPos.inc 8
 
   # hash
@@ -43,7 +41,7 @@ proc init_handshake(handshake: HandShake, extend: bool = false): seq[byte] =
 
 
 proc extend_handshake(): seq[byte] = 
-  let payload = {"m": {"ut_metadata": "2", "metadata_size": "0"}}.toTable
+  let payload = {"m": {"ut_metadata": 2, "metadata_size": 0}}.toTable
   let serialize = bencode(payload)
 
   var ext_msg = newSeq[byte]()
@@ -63,69 +61,34 @@ proc extend_handshake(): seq[byte] =
 
   return msg
 
-proc verify_handshake(response: string, expected: HandShake): bool = 
-  let resp_bytes = response.toBytes
-  if resp_bytes.len != 68:
-    echo "response longer than expected: ", resp_bytes.len
-    return false
-
-  if resp_bytes[1..19] != expected.Identifier.toBytes:
-    echo "Protocol string mismatch"
-    echo "Expected: ", expected.Identifier
-    echo "Received: ", resp_bytes[1..19].fromBytes()
-    return false
-
-  if resp_bytes[28..47] != expected.InfoHash:
-    echo $resp_bytes[28..47]
-    echo "info hash not the same"
-    return false
-
-  return true
-
 proc connect_peer(msg: HandShake, peer: TPeers): Future[string] {.async.} = 
   try:
-    var s = newAsyncSocket()
-    await s.connect(peer.Ip, Port(peer.Port))
+    var s = await asyncnet.dial(peer.Ip, Port(peer.Port))
 
-    let payload = init_handshake(msg)
-    await s.send($payload)
+    let payload = init_handshake(msg, true)
+    await s.send(addr payload[0], 68)
 
-    let response = await s.recv(68)
-    if not verify_handshake(response, msg):
-      s.close()
-      echo "error. response not as expected"
-      return ""
-
-    echo "success. sending extended msg"
-    let ext_msg = extend_handshake()
-    await s.send($ext_msg)
-
-    let init_resp = await s.recv(4)
-    if init_resp.len != 4:
-      s.close()
-      return ""
-
-    let msgLength = (
-      (ext_msg[0].uint32 shl 24) or
-      (ext_msg[1].uint32 shl 16) or 
-      (ext_msg[2].uint32 shl 8) or
-      ext_msg[3].uint32
-    )
+    var rest: array[68, byte]
+    discard await s.recvInto(addr rest[0], 68)
     
-    # Read extension message
-    let extResponse = await s.recv(msgLength.int)
-    echo "extended msg ", extResponse
-    s.close()
-    return extResponse
+    if rest.len < 68:
+      echo "Peer closed connection or sent incomplete data"
+      return ""
+
+    if rest[28..47] != msg.InfoHash:
+      s.close()
+      return ""
+
+    echo rest
   
-  except Exception as e:
-    echo "unable to connect to peer: ", peer.Ip
+  except Exception as _:
+    discard
 
 proc contact*(id, hash: string, peers: seq[TPeers]): Future[seq[string]] {.async.} = 
   var futures: seq[Future[string]] = @[]
   let hobj = HandShake(
     Identifier: "BitTorrent protocol",
-    InfoHash: hash.toBytesArray(20),
+    InfoHash: hash.hexStringToBytes(20),
     PeerId: id.toBytesArray(20)
     )
 
