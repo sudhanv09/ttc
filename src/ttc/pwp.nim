@@ -1,4 +1,4 @@
-import utils, peers
+import utils, peers, messages
 import std/[tables, asyncnet, asyncdispatch, strutils]
 import bencode
 
@@ -7,6 +7,8 @@ type
     Identifier: string
     InfoHash: array[20, byte]
     PeerId: array[20, byte]
+
+
   
 proc init_handshake(handshake: HandShake, extend: bool = false): array[68, byte] = 
   var msg: array[68, byte]
@@ -61,26 +63,40 @@ proc extend_handshake(): seq[byte] =
 
   return msg
 
+proc parse_extend_message(arr: seq[byte]) = discard
+
 proc connect_peer(msg: HandShake, peer: TPeers): Future[string] {.async.} = 
   try:
     var s = await asyncnet.dial(peer.Ip, Port(peer.Port))
+    defer: s.close()
 
-    let payload = init_handshake(msg, true)
-    await s.send(addr payload[0], 68)
+    let hmsg: array[68, byte] = init_handshake(msg, true)
+    let extend: seq[byte] = extend_handshake()
+    let msglen = hmsg.len + extend.len
 
-    var rest: array[68, byte]
-    discard await s.recvInto(addr rest[0], 68)
+    var combined = newSeq[byte](msglen)
     
-    if rest.len < 68:
-      echo "Peer closed connection or sent incomplete data"
-      return ""
+    for i, b in hmsg:
+      combined[i] = b
+    for i, b in extend:
+      combined[hmsg.len + i] = b
 
-    if rest[28..47] != msg.InfoHash:
+    await s.send(addr combined[0], msglen)
+
+    var resp: array[600, byte]
+    discard await s.recvInto(addr resp[0], 600)
+    
+    if resp[28..47] != msg.InfoHash:
+      echo "hash mismatch"
       s.close()
       return ""
 
-    echo rest
-  
+    let ext_len = resp[68..71][3]
+
+    echo "ext: ", resp[72..ext_len]
+
+    echo "bitfield: ", resp[284..^1], "\n"
+
   except Exception as _:
     discard
 
