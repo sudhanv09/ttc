@@ -1,8 +1,5 @@
-import std/[strformat, strutils, algorithm]
+import std/[strutils, algorithm]
 import nanoid
-
-proc toByte(c: char): byte =
-  byte(ord(c))
 
 proc toBytes*(s: string): seq[byte] =
   result = newSeq[byte](s.len)
@@ -12,7 +9,7 @@ proc toBytes*(s: string): seq[byte] =
 proc toBytesArray*(s: string, size: static int): array[size, byte] =
   result.fill(0'u8)
   for i in 0 ..< min(s.len, size):
-    result[i] = s[i].toByte
+    result[i] = byte(ord(s[i]))
 
 proc hexStringToBytes*(s: string, size: static int): array[size, byte] =
   result.fill(0'u8)
@@ -31,16 +28,16 @@ proc hexStringToBytes*(s: string, size: static int): array[size, byte] =
           echo "Failed to convert hex pair: ", hexByte
           result[byteIndex] = 0'u8
 
-proc fromBytes*(s: seq[byte]): string = 
-  if s.len > 0:
-    result = newString(s.len)
-    copyMem(result.cstring, s.unsafeAddr, s.len)
+func fromBytes*(b: seq[byte]): string =
+  return cast[string](b)
 
-proc bToString*(bytes: seq[byte]): string =
-  result = "b'"
-  for b in bytes:
-    result.add(fmt"\x{b:02x}")  # Format each byte as hex
-  result.add("'")
+
+proc bToInt*(bytes: array[4, byte]): int =
+  var bytesLen = bytes.len
+  for i in 0..<bytesLen:
+    result = result or (int(bytes[i]) shl ((bytesLen-1-i)*8))
+
+  return result
 
 proc genPeerId*(): string = 
   const prefix = "-TT0001-"

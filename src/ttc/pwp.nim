@@ -8,8 +8,20 @@ type
     InfoHash: array[20, byte]
     PeerId: array[20, byte]
 
+  ExtendResponse = object
+    Complete*: int
+    M*: MDict
+    Metadata*: int32
 
-  
+  MDict = object
+    LtDontHave*: int
+    ShareMode*: int
+    UploadOnly*: int
+    UtHolepunch*: int
+    UtMeta*: int
+    UtPex*: int
+
+
 proc init_handshake(handshake: HandShake, extend: bool = false): array[68, byte] = 
   var msg: array[68, byte]
   var currPos = 0
@@ -47,7 +59,6 @@ proc extend_handshake(): seq[byte] =
   let serialize = bencode(payload)
 
   var ext_msg = newSeq[byte]()
-
   ext_msg.add(20'u8) # extended message ID
   ext_msg.add(0'u8) # handshake id
   ext_msg.add(serialize.toBytes)
@@ -63,7 +74,39 @@ proc extend_handshake(): seq[byte] =
 
   return msg
 
-proc parse_extend_message(arr: seq[byte]) = discard
+proc parse_extend_message(arr: seq[byte]): ExtendResponse = 
+  let msg_str = arr.fromBytes()
+  var extended: ExtendResponse
+
+  try:
+    let bcString = bdecode(msg_str)
+    for key, item in bcString.dictVal.pairs:
+      case key:
+        of "complete_ago":
+          extended.Complete = item.intVal
+        of "metadata_size":
+          extended.Metadata = item.intVal.int32
+        of "m":
+            for k, i in item.dictVal.pairs:
+              case k:
+                of "lt_donthave":
+                  extended.M.LtDontHave = i.intVal
+                of "share_mode":
+                  extended.M.ShareMode = i.intVal
+                of "upload_only":
+                  extended.M.UploadOnly = i.intVal
+                of "ut_holepunch":
+                  extended.M.UtHolepunch = i.intVal
+                of "ut_metadata":
+                  extended.M.UtMeta = i.intVal
+                of "ut_pex":
+                  extended.M.UtPex = i.intVal
+
+    return extended
+  except Exception as _:
+    discard
+
+proc request_piece() = discard
 
 proc connect_peer(msg: HandShake, peer: TPeers): Future[string] {.async.} = 
   try:
@@ -83,19 +126,26 @@ proc connect_peer(msg: HandShake, peer: TPeers): Future[string] {.async.} =
 
     await s.send(addr combined[0], msglen)
 
-    var resp: array[600, byte]
-    discard await s.recvInto(addr resp[0], 600)
-    
+    var resp: array[68, byte]
+    discard await s.recvInto(addr resp[0], 68)
+
     if resp[28..47] != msg.InfoHash:
-      echo "hash mismatch"
       s.close()
       return ""
 
-    let ext_len = resp[68..71][3]
+    var extlen: array[4, byte]
+    discard await s.recvInto(addr extlen[0], 4)
 
-    echo "ext: ", resp[72..ext_len]
+    var extMsg = newSeq[byte](extlen.bToInt())
+    discard await s.recvInto(addr extMsg[0], extlen.bToInt())
 
-    echo "bitfield: ", resp[284..^1], "\n"
+    echo "msg: ", extMsg.parse_extend_message()
+
+    var bitLen: array[4, byte]
+    discard await s.recvInto(addr bitLen[0], 4)
+
+    var bitfield = newSeq[byte](bitLen.bToInt())
+    discard await s.recvInto(addr bitfield[0], bitLen.bToInt())
 
   except Exception as _:
     discard
