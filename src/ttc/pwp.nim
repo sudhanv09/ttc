@@ -21,6 +21,10 @@ type
     UtMeta*: int
     UtPex*: int
 
+  PeerData* = object
+    PeerIp: TPeers
+    Piece*: seq[byte] 
+
 
 proc init_handshake(handshake: HandShake, extend: bool = false): array[68, byte] = 
   var msg: array[68, byte]
@@ -75,7 +79,7 @@ proc extend_handshake(): seq[byte] =
   return msg
 
 proc parse_extend_message(arr: seq[byte]): ExtendResponse = 
-  let msg_str = arr.fromBytes()
+  let msg_str = arr[2..^1].fromBytes()
   var extended: ExtendResponse
 
   try:
@@ -106,10 +110,9 @@ proc parse_extend_message(arr: seq[byte]): ExtendResponse =
   except Exception as _:
     discard
 
-proc request_piece() = discard
-
-proc connect_peer(msg: HandShake, peer: TPeers): Future[string] {.async.} = 
+proc send_verify_handshake*(s: AsyncSocket, msg: Handshake, peer: TPeers): Future[bool] {.async.} = 
   try:
+
     var s = await asyncnet.dial(peer.Ip, Port(peer.Port))
     defer: s.close()
 
@@ -131,7 +134,31 @@ proc connect_peer(msg: HandShake, peer: TPeers): Future[string] {.async.} =
 
     if resp[28..47] != msg.InfoHash:
       s.close()
-      return ""
+      return false
+
+    return true
+
+  except Exception as _: discard
+
+proc request_metadata*(s: AsyncSocket) {.async.} = discard
+
+proc get_piece(idx: int) = discard
+
+
+proc request_bitfields*(s: AsyncSocket): Future[PeerData] {.async.} = 
+  var bitLen: array[4, byte]
+  discard await s.recvInto(addr bitLen[0], 4)
+
+  var bitfield = newSeq[byte](bitLen.bToInt())
+  discard await s.recvInto(addr bitfield[0], bitLen.bToInt())
+
+
+proc connect_peer(msg: HandShake, peer: TPeers): Future[string] {.async.} = 
+  try:
+    var s = await asyncnet.dial(peer.Ip, Port(peer.Port))
+    defer: s.close()
+
+    
 
     var extlen: array[4, byte]
     discard await s.recvInto(addr extlen[0], 4)
