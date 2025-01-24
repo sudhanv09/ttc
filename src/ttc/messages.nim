@@ -27,29 +27,29 @@ proc serialize(msg: Message): seq[byte] =
 
   # Action
   data[4] = msg.Id.byte
-  
+
   # Payload
   for i, b in msg.Payload:
     data[i+5] = b
 
   return data
 
-proc sendChoke(s: AsyncSocket) {.async.} = 
+proc sendChoke*(s: AsyncSocket) {.async.} = 
   let msg = Message(Id: pChoke).serialize()
   await s.send(addr msg[0], msg.len)
   
-proc sendUnchoke(s: AsyncSocket) {.async.} = 
+proc sendUnchoke*(s: AsyncSocket) {.async.} = 
   let msg = Message(Id: pUnchoke).serialize()
   await s.send(addr msg[0], msg.len)
 
-proc sendInterested(s: AsyncSocket) {.async.} = 
+proc sendInterested*(s: AsyncSocket) {.async.} = 
   let msg = Message(Id: pInterested).serialize()
   await s.send(addr msg[0], msg.len)
 
-proc sendNotInterested(s: AsyncSocket) {.async.} = 
+proc sendNotInterested*(s: AsyncSocket) {.async.} = 
   let msg = Message(Id: pUninterested).serialize()
   await s.send(addr msg[0], msg.len)
 
-proc sendHave(s: AsyncSocket, idx: int) {.async.} = 
+proc sendHave*(s: AsyncSocket, idx: int) {.async.} = 
   let msg = Message(Id: pHave).serialize()
   await s.send(addr msg[0], msg.len)

@@ -1,5 +1,5 @@
-import messages, peers, magnet, pwp, utils
-import std/[asyncnet, asyncdispatch, times, strutils]
+import peers, magnet, pwp, utils
+import std/[asyncdispatch, times, strutils, sequtils]
 
 
 proc start_client*(mag_str: string) {.async.} = 
@@ -12,14 +12,11 @@ proc start_client*(mag_str: string) {.async.} =
   var tresp =  waitFor connect_trackers(id, val)
   let elapsed = epochTime() - t0
 
-  echo "Finished: ", elapsed.formatFloat(format=ffDecimal, precision=3)
+  echo "Finished fetching peers: ", elapsed.formatFloat(format=ffDecimal, precision=3)
 
   echo "contacting peers"
-  var peer_bucket: seq[TPeers] = @[]
-  for peer in tresp:
-      peer_bucket.add(peer.Peers)
+  var peer_bucket = tresp.mapIt(it.Peers).concat()
 
-  var s: AsyncSocket
   echo "got peer pool: ", peer_bucket.len
   discard waitFor contact(id, val.InfoHash, peer_bucket)
 

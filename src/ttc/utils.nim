@@ -31,7 +31,6 @@ proc hexStringToBytes*(s: string, size: static int): array[size, byte] =
 func fromBytes*(b: seq[byte]): string =
   return cast[string](b)
 
-
 proc bToInt*(bytes: array[4, byte]): int =
   var bytesLen = bytes.len
   for i in 0..<bytesLen:
