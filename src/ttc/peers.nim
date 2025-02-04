@@ -1,6 +1,6 @@
 import magnet
 import std/[uri, strutils, asyncdispatch, httpclient, tables]
-import bencode
+import pkg/bencode
 
 type
   TrackerReq* = object
@@ -70,21 +70,21 @@ proc parse_peers(peer_str: string): seq[TPeers] =
     offset += 6
 
 proc parse_response(resp: string): TrackerResp = 
-  let bcString = bdecode(resp)
+  let bcString = bDecode(resp)
   var tracker: TrackerResp
   
-  for key, item in bcString.dictVal.pairs:
+  for key, item in bcString.d.pairs:
     case key:
       of "interval":
-        tracker.Interval = item.intVal
+        tracker.Interval = item.i
       of "min interval":
-        tracker.MinInterval = item.intVal
+        tracker.MinInterval = item.i
       of "complete":
-        tracker.Complete = item.intVal
+        tracker.Complete = item.i
       of "incomplete":
-        tracker.Incomplete = item.intVal
+        tracker.Incomplete = item.i
       of "peers":
-          let peers = parse_peers(item.strVal)
+          let peers = parse_peers(item.s)
           if peers.len > 0:
             tracker.Peers = peers
 

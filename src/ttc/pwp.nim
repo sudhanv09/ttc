@@ -85,7 +85,7 @@ proc create_handshake_msg(handshake: HandShake, extend: bool = false): array[68,
   return msg
 
 proc create_extend_msg(req_id: int, payload: Table): seq[byte] = 
-  let serialize = bencode(payload)
+  let serialize = payload.toBencode()
 
   var ext_msg = newSeq[byte]()
   ext_msg.add(20'u8) # extended message ID
@@ -108,28 +108,28 @@ proc parse_extend_message(arr: seq[byte]): ExtendResponse =
   var extended: ExtendResponse
 
   try:
-    let bcString = bdecode(msg_str)
-    for key, item in bcString.dictVal.pairs:
+    let bcString = bDecode(msg_str)
+    for key, item in bcString.d.pairs:
       case key:
         of "complete_ago":
-          extended.Complete = item.intVal
+          extended.Complete = item.i
         of "metadata_size":
-          extended.Metadata = item.intVal.int32
+          extended.Metadata = item.i.int32
         of "m":
-            for k, i in item.dictVal.pairs:
+            for k, val in item.d.pairs:
               case k:
                 of "lt_donthave":
-                  extended.M.LtDontHave = i.intVal
+                  extended.M.LtDontHave = val.i
                 of "share_mode":
-                  extended.M.ShareMode = i.intVal
+                  extended.M.ShareMode = val.i
                 of "upload_only":
-                  extended.M.UploadOnly = i.intVal
+                  extended.M.UploadOnly = val.i
                 of "ut_holepunch":
-                  extended.M.UtHolepunch = i.intVal
+                  extended.M.UtHolepunch = val.i
                 of "ut_metadata":
-                  extended.M.UtMeta = i.intVal
+                  extended.M.UtMeta = val.i
                 of "ut_pex":
-                  extended.M.UtPex = i.intVal
+                  extended.M.UtPex = val.i
 
     return extended
   except Exception as _:
@@ -139,7 +139,7 @@ proc send_verify_handshake*(s: AsyncSocket, msg: Handshake): Future[bool] {.asyn
   try:
     let hmsg: array[68, byte] = create_handshake_msg(msg, true)
 
-    let payload = {"m": {"ut_metadata": 2, "metadata_size": 0}}.toTable
+    let payload = {"m": {"ut_metadata": 2, "metadata_size": 0}.toTable}.toTable
     let extend: seq[byte] = create_extend_msg(0, payload)
     let msglen = hmsg.len + extend.len
 
@@ -163,42 +163,50 @@ proc send_verify_handshake*(s: AsyncSocket, msg: Handshake): Future[bool] {.asyn
 
   except Exception as _: discard
 
-proc parse_metadata(arr: seq[byte]): MetaInfoData = 
-  if not arr[0] == 20'u8:
-    echo "Not metadata"
-    return MetaInfoData()
+# helper functions
+proc parseFileDict(node: BencodeObj): FileDict =
+  result = FileDict()
+  for key, val in node.d.pairs:
+    case key
+    of "length":
+      if val.kind == Int:
+        result.Length = val.i
+    of "path":
+      if val.kind == List:
+        for item in val.l:
+            result.Path = item.s
+    else:
+      discard
 
-  let msg_str = arr[2..^1].fromBytes().replace(" ", "")
+proc parseFile(node: BencodeObj): seq[FileDict] = 
+    result = @[]
+    if node.kind == List:
+        for item in node.l:
+            result.add(parseFileDict(item))
+
+proc parse_metadata(arr: seq[byte]): MetaInfoData = 
+  let msg_str = arr.fromBytes()
+  echo msg_str[0..300]
   var res: MetaInfoData
 
   try:
     let bcString = bdecode(msg_str)
-    echo bcString
-    for key, item in bcString.dictVal.pairs:
+    for key, item in bcString.d.pairs:
       case key:
       of "msg_type":
-        res.MsgType = MessageType(item.intVal)
+        res.MsgType = MessageType(item.i)
       of "piece":
-        res.Piece = item.intVal
+        res.Piece = item.i
       of "total_size":
-        res.TotalSize = item.intVal
+        res.TotalSize = item.i
       of "name":
-        res.Name = item.strVal
+        res.Name = item.s
       of "piece length":
-        res.PieceLen = item.intVal
+        res.PieceLen = item.i
       of "files":
-        res.Files = @[]
-        for file in item.listVal:
-          var fileDict: FileDict
-          for fileKey, fileItem in file.dictVal.pairs:
-            case fileKey:
-            of "length":
-              fileDict.Length = fileItem.intVal
-            of "path":
-              fileDict.Path = fileItem.listVal[0].strVal
-          res.Files.add(fileDict)
+        res.Files = parseFile(item)          
       of "pieces":
-        res.SHAPieces = cast[seq[byte]](item.strVal)
+        res.SHAPieces = cast[seq[byte]](item.s)
       else:
         discard
 
@@ -206,7 +214,7 @@ proc parse_metadata(arr: seq[byte]): MetaInfoData =
   except Exception as _:
     discard
 
-proc request_metadata*(s: AsyncSocket, ut_id, piece: int) {.async.} = 
+proc request_metadata*(s: AsyncSocket, ut_id, piece: int): Future[MetaInfoData] {.async.} = 
   let payload = {"msg_type": 0, "piece": piece }.toTable
   let msg = create_extend_msg(ut_id, payload)
 
@@ -234,8 +242,8 @@ proc connect_peer(msg: HandShake, peer: TPeers): Future[string] {.async.} =
     discard await s.request_bitfields()
 
     if res.M.UtMeta != 0:
-      echo " requesting first piece"
-      await s.request_metadata(res.M.UtMeta, 0)
+      echo "requesting first piece"
+      discard await s.request_metadata(res.M.UtMeta, 0)
 
   except Exception as _:
     discard
