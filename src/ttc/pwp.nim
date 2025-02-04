@@ -30,6 +30,8 @@ type
     MsgType*: MessageType
     Piece*: int
     TotalSize*: int
+
+  MetaFileInfo* = object
     Files*: seq[FileDict]
     Name*: string
     PieceLen*: int
@@ -163,6 +165,27 @@ proc send_verify_handshake*(s: AsyncSocket, msg: Handshake): Future[bool] {.asyn
 
   except Exception as _: discard
 
+proc parse_metainfo(arr: seq[byte]): MetaInfoData = 
+  let msg_str = arr.fromBytes()
+  var res: MetaInfoData
+
+  try:
+    let bcString = bdecode(msg_str)
+    for key, item in bcString.d.pairs:
+      case key:
+      of "msg_type":
+        res.MsgType = MessageType(item.i)
+      of "piece":
+        res.Piece = item.i
+      of "total_size":
+        res.TotalSize = item.i
+      else:
+        discard
+
+    return res
+  except Exception as _:
+    discard
+
 # helper functions
 proc parseFileDict(node: BencodeObj): FileDict =
   result = FileDict()
@@ -184,21 +207,34 @@ proc parseFile(node: BencodeObj): seq[FileDict] =
         for item in node.l:
             result.add(parseFileDict(item))
 
-proc parse_metadata(arr: seq[byte]): MetaInfoData = 
+proc correct_len(msg: string): string = 
+  let interest = "e6:pieces"
+  let idx = msg.find(interest)
+
+  if idx == -1:
+    return 
+  
+  let rest_msg = msg[idx+interest.len..^1]
+  let colon = rest_msg.find(':')
+  if colon == -1: return
+
+  let blobs = msg[colon+1..^1]
+  let pieces_data = rest_msg[colon+1..^1]  
+  let correct_len = pieces_data.len
+
+  let prefix = msg[0..<idx+interest.len]
+  return prefix & $correct_len & ":" & pieces_data
+
+proc parse_metafile(arr: seq[byte]): MetaFileInfo = 
   let msg_str = arr.fromBytes()
-  echo msg_str[0..300]
-  var res: MetaInfoData
+  let corrected = correct_len(msg_str) & 'e'
+
+  var res: MetaFileInfo
 
   try:
-    let bcString = bdecode(msg_str)
+    let bcString = bdecode(corrected)
     for key, item in bcString.d.pairs:
       case key:
-      of "msg_type":
-        res.MsgType = MessageType(item.i)
-      of "piece":
-        res.Piece = item.i
-      of "total_size":
-        res.TotalSize = item.i
       of "name":
         res.Name = item.s
       of "piece length":
@@ -221,7 +257,8 @@ proc request_metadata*(s: AsyncSocket, ut_id, piece: int): Future[MetaInfoData] 
   await s.send(addr msg[0], msg.len)
 
   let recvMsg = await getMessage(s)
-  discard recvMsg.parse_metadata()
+  let meta_info = parse_metainfo(recvMsg[2..46])
+  let file_info = parse_metafile(recvMsg[47..^1])
 
 proc get_piece(idx: int) = discard
 
