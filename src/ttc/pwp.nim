@@ -51,7 +51,7 @@ type
     Piece*: seq[byte] 
     Meta*: TorrentMetadata
 
-const METADATA_PIECE_SIZE = 16384
+const METADATA_PIECE_SIZE* = 16384
 
 proc get_message(s: AsyncSocket): Future[seq[byte]] {.async.} = 
   var msglen: array[4, byte]
@@ -304,7 +304,7 @@ proc connect_peer(msg: HandShake, peer: TPeers): Future[PeerData] {.async.} =
   except Exception as _:
     return PeerData()
 
-proc contact*(id, hash: string, peers: seq[TPeers]): Future[seq[string]] {.async.} = 
+proc contact*(id, hash: string, peers: seq[TPeers]): Future[seq[PeerData]] {.async.} = 
   var futures: seq[Future[PeerData]] = @[]
   let hobj = HandShake(
     Identifier: "BitTorrent protocol",
@@ -315,6 +315,6 @@ proc contact*(id, hash: string, peers: seq[TPeers]): Future[seq[string]] {.async
   for peer in peers:
     futures.add(connect_peer(hobj, peer))
 
-  let peer_data = await all(futures)
+  return await all(futures)
 
 

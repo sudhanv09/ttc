@@ -1,4 +1,4 @@
-import std/[asyncnet, asyncdispatch]
+import std/[asyncnet, asyncdispatch, endians]
 
 type
   PeerActions* = enum
@@ -33,6 +33,24 @@ proc serialize(msg: Message): seq[byte] =
     data[i+5] = b
 
   return data
+
+proc sendRequest*(s: AsyncSocket, idx, begin, length: int) {.async.} = 
+  var data = newSeq[byte](12)
+  
+  bigEndian32(addr data[0], addr idx)
+  bigEndian32(addr data[4], addr begin)
+  bigEndian32(addr data[8], addr length)
+
+  let msg = Message(Id: pRequest, Payload: data).serialize()
+  await s.send(addr msg[0], msg.len)
+
+
+proc sendKeepAlive(s: AsyncSocket) {.async.} = 
+  var msg = newSeq[byte](4)
+  for i in 0..3:
+    msg[i] = 0.byte
+    
+  await s.send(addr msg[0], msg.len)
 
 proc sendChoke*(s: AsyncSocket) {.async.} = 
   let msg = Message(Id: pChoke).serialize()
