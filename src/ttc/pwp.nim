@@ -177,7 +177,7 @@ proc parse_metainfo(arr: seq[byte]): MetaDataInfo =
   var res: MetaDataInfo
 
   try:
-    let bcString = bdecode(msg_str)
+    let bcString = bDecode(msg_str)
     for key, item in bcString.d.pairs:
       case key:
       of "msg_type":
@@ -223,15 +223,17 @@ proc split_piece_hashes(item: seq[byte]): seq[seq[byte]] =
   var hashes = newSeq[seq[byte]](num_hashes)
 
   for i in 0..<num_hashes:
+    hashes[i] = newSeq[byte](20)
     copyMem(addr hashes[i][0], unsafeAddr item[i*20], 20)
   
   return hashes
 
 proc parse_metafile(arr: seq[byte]): MetaDataFiles = 
   let msg_str = arr.fromBytes()
+
   var res: MetaDataFiles
   try:
-    let bcString = bdecode(msg_str)
+    let bcString = bDecode(msg_str)
     for key, item in bcString.d.pairs:
       case key:
       of "name":
@@ -275,9 +277,10 @@ proc request_metadata*(s: AsyncSocket, ut_id, piece: int): Future[TorrentMetadat
     if data_acc.len >= total_size:
       break
   
-  assert data_acc.len == total_size
+
   let file_info = parse_metafile(data_acc)
   return TorrentMetadata(Info: meta_info, File: file_info)
+
 
 proc connect_peer(msg: HandShake, peer: TPeers): Future[PeerData] {.async.} = 
   try:
@@ -295,7 +298,6 @@ proc connect_peer(msg: HandShake, peer: TPeers): Future[PeerData] {.async.} =
     var meta: TorrentMetadata
     if res.M.UtMeta != 0:
       meta = await s.request_metadata(res.M.UtMeta, 0)
-      # echo meta.File
 
     return PeerData(Conn: s, Peer: peer, Piece: bits, Meta: meta)
 
