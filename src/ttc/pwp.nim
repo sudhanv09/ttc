@@ -1,5 +1,5 @@
 import utils, peers
-import std/[tables, asyncnet, asyncdispatch, strutils]
+import std/[tables, asyncnet, asyncdispatch, strutils, math]
 import bencode
 
 type
@@ -26,25 +26,32 @@ type
     Data = 1
     Reject = 2
 
-  MetaInfoData* = object
+  TorrentMetadata* = object
+    Info*: MetaDataInfo
+    File*: MetaDataFiles
+
+  MetaDataInfo* = object
     MsgType*: MessageType
-    Piece*: int
+    PieceIndex*: int
     TotalSize*: int
 
-  MetaFileInfo* = object
+  MetaDataFiles* = object
     Files*: seq[FileDict]
     Name*: string
-    PieceLen*: int
-    SHAPieces*: seq[byte]
+    PieceLength*: int
+    PieceHashes*: seq[seq[byte]]
 
   FileDict* = object
     Length*: int
     Path*: string
 
   PeerData* = object
-    PeerIp: TPeers
+    Conn*: AsyncSocket
+    Peer*: TPeers
     Piece*: seq[byte] 
+    Meta*: TorrentMetadata
 
+const METADATA_PIECE_SIZE = 16384
 
 proc get_message(s: AsyncSocket): Future[seq[byte]] {.async.} = 
   var msglen: array[4, byte]
@@ -165,9 +172,9 @@ proc send_verify_handshake*(s: AsyncSocket, msg: Handshake): Future[bool] {.asyn
 
   except Exception as _: discard
 
-proc parse_metainfo(arr: seq[byte]): MetaInfoData = 
+proc parse_metainfo(arr: seq[byte]): MetaDataInfo = 
   let msg_str = arr.fromBytes()
-  var res: MetaInfoData
+  var res: MetaDataInfo
 
   try:
     let bcString = bdecode(msg_str)
@@ -176,7 +183,7 @@ proc parse_metainfo(arr: seq[byte]): MetaInfoData =
       of "msg_type":
         res.MsgType = MessageType(item.i)
       of "piece":
-        res.Piece = item.i
+        res.PieceIndex = item.i
       of "total_size":
         res.TotalSize = item.i
       else:
@@ -207,86 +214,96 @@ proc parseFile(node: BencodeObj): seq[FileDict] =
         for item in node.l:
             result.add(parseFileDict(item))
 
-proc correct_len(msg: string): string = 
-  let interest = "e6:pieces"
-  let idx = msg.find(interest)
+proc split_piece_hashes(item: seq[byte]): seq[seq[byte]] = 
+  if item.len mod 20 != 0:
+    echo "Malformed piece. got: ", item.len
+    return
 
-  if idx == -1:
-    return 
+  let num_hashes = item.len div 20
+  var hashes = newSeq[seq[byte]](num_hashes)
+
+  for i in 0..<num_hashes:
+    copyMem(addr hashes[i][0], unsafeAddr item[i*20], 20)
   
-  let rest_msg = msg[idx+interest.len..^1]
-  let colon = rest_msg.find(':')
-  if colon == -1: return
+  return hashes
 
-  let blobs = msg[colon+1..^1]
-  let pieces_data = rest_msg[colon+1..^1]  
-  let correct_len = pieces_data.len
-
-  let prefix = msg[0..<idx+interest.len]
-  return prefix & $correct_len & ":" & pieces_data
-
-proc parse_metafile(arr: seq[byte]): MetaFileInfo = 
+proc parse_metafile(arr: seq[byte]): MetaDataFiles = 
   let msg_str = arr.fromBytes()
-  let corrected = correct_len(msg_str) & 'e'
-
-  var res: MetaFileInfo
-
+  var res: MetaDataFiles
   try:
-    let bcString = bdecode(corrected)
+    let bcString = bdecode(msg_str)
     for key, item in bcString.d.pairs:
       case key:
       of "name":
         res.Name = item.s
       of "piece length":
-        res.PieceLen = item.i
+        res.PieceLength = item.i
       of "files":
         res.Files = parseFile(item)          
       of "pieces":
-        res.SHAPieces = cast[seq[byte]](item.s)
+        res.PieceHashes = split_piece_hashes(item.s.toBytes())
       else:
         discard
 
     return res
-  except Exception as _:
-    discard
+  except Exception as e:
+    echo "Failed to parse message ", e.msg
 
-proc request_metadata*(s: AsyncSocket, ut_id, piece: int): Future[MetaInfoData] {.async.} = 
-  let payload = {"msg_type": 0, "piece": piece }.toTable
-  let msg = create_extend_msg(ut_id, payload)
+proc request_metadata*(s: AsyncSocket, ut_id, piece: int): Future[TorrentMetadata] {.async.} = 
+  var data_acc: seq[byte] = @[]
+  var total_size = 0
+  var pieces_required = 0.0
+  var curr_piece = piece
+  var meta_info: MetaDataInfo
 
-  await s.send(addr msg[0], msg.len)
+  while true:
+    let payload = {"msg_type": ord(Request), "piece": curr_piece }.toTable
+    let msg = create_extend_msg(ut_id, payload)
 
-  let recvMsg = await getMessage(s)
-  let meta_info = parse_metainfo(recvMsg[2..46])
-  let file_info = parse_metafile(recvMsg[47..^1])
+    await s.send(addr msg[0], msg.len)
+    let recvMsg = await getMessage(s)
 
-proc get_piece(idx: int) = discard
+    if curr_piece == 0:
+      meta_info = parse_metainfo(recvMsg[2..46])
+      total_size = meta_info.TotalSize
+      pieces_required = ceil(total_size / METADATA_PIECE_SIZE)
+    
+    let piece_data = recvMsg[47..^1]
+    data_acc.add(piece_data)
 
-proc request_bitfields*(s: AsyncSocket): Future[PeerData] {.async.} = 
-  let bits = await get_message(s)
+    curr_piece += 1
+    if data_acc.len >= total_size:
+      break
+  
+  assert data_acc.len == total_size
+  let file_info = parse_metafile(data_acc)
+  return TorrentMetadata(Info: meta_info, File: file_info)
 
-proc connect_peer(msg: HandShake, peer: TPeers): Future[string] {.async.} = 
+proc connect_peer(msg: HandShake, peer: TPeers): Future[PeerData] {.async.} = 
   try:
     var s = await asyncnet.dial(peer.Ip, Port(peer.Port))
-    defer: s.close()
-
+    
     if not await send_verify_handshake(s, msg):
       s.close()
-      echo "handshake failed"
+      # echo "handshake failed"
+      return PeerData()
 
     var extMsg = await s.get_message()
     let res = extMsg.parse_extend_message()
-    discard await s.request_bitfields()
+    let bits = await s.get_message()
 
+    var meta: TorrentMetadata
     if res.M.UtMeta != 0:
-      echo "requesting first piece"
-      discard await s.request_metadata(res.M.UtMeta, 0)
+      meta = await s.request_metadata(res.M.UtMeta, 0)
+      # echo meta.File
+
+    return PeerData(Conn: s, Peer: peer, Piece: bits, Meta: meta)
 
   except Exception as _:
-    discard
+    return PeerData()
 
 proc contact*(id, hash: string, peers: seq[TPeers]): Future[seq[string]] {.async.} = 
-  var futures: seq[Future[string]] = @[]
+  var futures: seq[Future[PeerData]] = @[]
   let hobj = HandShake(
     Identifier: "BitTorrent protocol",
     InfoHash: hash.hexStringToBytes(20),
@@ -296,4 +313,6 @@ proc contact*(id, hash: string, peers: seq[TPeers]): Future[seq[string]] {.async
   for peer in peers:
     futures.add(connect_peer(hobj, peer))
 
-  return await all(futures)
+  let peer_data = await all(futures)
+
+
