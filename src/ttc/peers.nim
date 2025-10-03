@@ -1,6 +1,6 @@
-import magnet
+import magnet, utils
 import std/[uri, strutils, asyncdispatch, httpclient, tables]
-import pkg/bencode
+import bencode
 
 type
   TrackerReq* = object
@@ -90,7 +90,7 @@ proc parse_response(resp: string): TrackerResp =
 
   return tracker
     
-proc send_request(url: string): Future[TrackerResp] {.async.} = 
+proc send_request(url: string): Future[TrackerResp] {.async.} =
   try:
     var client = newAsyncHttpClient()
     
@@ -99,17 +99,29 @@ proc send_request(url: string): Future[TrackerResp] {.async.} =
 
     if not body.startsWith("<!D"):
       return parse_response(body)
-  except Exception as _:
+  except Exception as e:
+    echo "request failed ", url
     discard
 
 proc connect_trackers*(id: string, magnet: Magnet): Future[seq[TrackerResp]] {.async.} =
   var futures: seq[Future[TrackerResp]] = @[]
-
+  
+  # Start all tracker requests concurrently
   for tracker in magnet.Trackers:
     let url = build_announce_url(id, magnet.InfoHash, tracker)
     futures.add send_request(url)
 
-  return await all(futures)
+  # Wait up to 30 seconds, collecting results as they complete
+  let allResults = await awaitWithTimeout(futures, 30_000)
+  
+  # Filter to only include responses with peers
+  var results: seq[TrackerResp] = @[]
+  for resp in allResults:
+    if resp.Peers.len > 0:
+      results.add(resp)
+  
+  echo "Collected ", results.len, " tracker responses with peers"
+  return results
 
 proc scrape_tracker(tracker, info_hash: string): Future[seq[string]] {.async.} = 
   var uri = parseUri(tracker)

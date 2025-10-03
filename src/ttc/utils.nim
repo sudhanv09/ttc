@@ -1,4 +1,4 @@
-import std/[strutils, algorithm]
+import std/[strutils, algorithm, asyncdispatch, times]
 import nanoid
 
 proc toBytes*(s: string): seq[byte] =
@@ -43,3 +43,43 @@ proc genPeerId*(): string =
   let rndid = generate(alphabet="abcdefghijklmnopqrstuvwxyz", size=12)
 
   return prefix & rndid
+
+proc awaitWithTimeout*[T](futures: seq[Future[T]], timeoutMs: int = 30_000): Future[seq[T]] {.async.} =
+  ## Generic async function that waits for futures with a timeout.
+  ## Returns all successfully completed results within the timeout period.
+  ##
+  ## Parameters:
+  ##   - futures: Sequence of futures to wait for
+  ##   - timeoutMs: Timeout in milliseconds (default: 30 seconds)
+  var remainingFutures = futures
+  var results: seq[T] = @[]
+  
+  let startTime = epochTime()
+  
+  while remainingFutures.len > 0:
+    let elapsed = int((epochTime() - startTime) * 1000)
+    if elapsed >= timeoutMs:
+      echo "Timeout reached (", timeoutMs div 1000, "s), collected ", results.len, " results"
+      break
+    
+    # Check which futures have completed
+    var completedIndices: seq[int] = @[]
+    for i in 0..<remainingFutures.len:
+      if remainingFutures[i].finished:
+        completedIndices.add(i)
+    
+    # Collect results from completed futures
+    for i in countdown(completedIndices.high, 0):
+      let idx = completedIndices[i]
+      try:
+        let result = await remainingFutures[idx]
+        results.add(result)
+      except:
+        discard  # Ignore failed futures
+      remainingFutures.delete(idx)
+    
+    # Small sleep to avoid busy waiting
+    if remainingFutures.len > 0:
+      await sleepAsync(100)
+  
+  return results

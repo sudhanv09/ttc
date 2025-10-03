@@ -304,17 +304,29 @@ proc connect_peer(msg: HandShake, peer: TPeers): Future[PeerData] {.async.} =
   except Exception as _:
     return PeerData()
 
-proc contact*(id, hash: string, peers: seq[TPeers]): Future[seq[PeerData]] {.async.} = 
+proc contact*(id, hash: string, peers: seq[TPeers]): Future[seq[PeerData]] {.async.} =
   var futures: seq[Future[PeerData]] = @[]
+  
   let hobj = HandShake(
     Identifier: "BitTorrent protocol",
     InfoHash: hash.hexStringToBytes(20),
     PeerId: id.toBytesArray(20)
     )
 
+  # Start all peer connections concurrently
   for peer in peers:
     futures.add(connect_peer(hobj, peer))
 
-  return await all(futures)
+  # Wait up to 30 seconds, collecting results as they complete
+  let allResults = await awaitWithTimeout(futures, 30_000)
+  
+  # Filter to only include successful connections
+  var results: seq[PeerData] = @[]
+  for peerData in allResults:
+    if not peerData.Conn.isNil:
+      results.add(peerData)
+  
+  echo "Collected ", results.len, " successful peer connections"
+  return results
 
 
