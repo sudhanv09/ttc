@@ -241,7 +241,12 @@ proc parse_metafile(arr: seq[byte]): MetaDataFiles =
       of "piece length":
         res.PieceLength = item.i
       of "files":
-        res.Files = parseFile(item)          
+        res.Files = parseFile(item)
+      of "length":
+        var fd = FileDict()
+        fd.Length = item.i
+        fd.Path = res.Name
+        res.Files.add(fd)
       of "pieces":
         res.PieceHashes = split_piece_hashes(item.s.toBytes())
       else:

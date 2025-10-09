@@ -100,21 +100,17 @@ proc send_request(url: string): Future[TrackerResp] {.async.} =
     if not body.startsWith("<!D"):
       return parse_response(body)
   except Exception as e:
-    echo "request failed ", url
     discard
 
 proc connect_trackers*(id: string, magnet: Magnet): Future[seq[TrackerResp]] {.async.} =
   var futures: seq[Future[TrackerResp]] = @[]
   
-  # Start all tracker requests concurrently
   for tracker in magnet.Trackers:
     let url = build_announce_url(id, magnet.InfoHash, tracker)
     futures.add send_request(url)
 
-  # Wait up to 30 seconds, collecting results as they complete
   let allResults = await awaitWithTimeout(futures, 30_000)
   
-  # Filter to only include responses with peers
   var results: seq[TrackerResp] = @[]
   for resp in allResults:
     if resp.Peers.len > 0:
