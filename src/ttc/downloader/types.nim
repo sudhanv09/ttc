@@ -1,5 +1,4 @@
-import std/[tables, deques]
-import ../pwp
+import std/[tables]
 
 type
   BlockStatus* = enum
@@ -42,29 +41,10 @@ type
     peerAvailability*: Table[string, seq[int]]  # PeerID -> pieces they have
     isComplete*: bool
 
-  # Request for a specific block
-  BlockRequest* = object
-    pieceIndex*: int
-    blockOffset*: int
-    blockLength*: int
-    priority*: int  # For rarest-first selection
-
-  # Queue for distributing work
-  WorkQueue* = object
-    pendingBlocks*: Deque[BlockRequest]
-    pieceRarity*: Table[int, int]  # pieceIndex -> count of peers having it
-
-  # File output configuration
-  FileOutput* = object
-    path*: string
-    length*: int
-    startPiece*: int  # For multi-file support
-    endPiece*: int
+  DownloadItem* = object
+    name*: string
+    state*: DownloadState
 
   # Main coordinator
-  DownloadCoordinator* = object
-    state*: DownloadState
-    workQueue*: WorkQueue
-    fileOutputs*: seq[FileOutput]
-    metadata*: TorrentMetadata
-    outputDir*: string
+  DownloadManager* = object
+    item*: seq[DownloadItem]
