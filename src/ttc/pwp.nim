@@ -26,9 +26,9 @@ type
     Data = 1
     Reject = 2
 
-  TorrentMetadata* = object
-    Info*: MetaDataInfo
-    File*: MetaDataFiles
+  FileDict* = object
+    Length*: int
+    Path*: string
 
   MetaDataInfo* = object
     MsgType*: MessageType
@@ -41,9 +41,9 @@ type
     PieceLength*: int
     PieceHashes*: seq[seq[byte]]
 
-  FileDict* = object
-    Length*: int
-    Path*: string
+  TorrentMetadata* = object
+    Info*: MetaDataInfo
+    File*: MetaDataFiles
 
   PeerData* = object
     Conn*: AsyncSocket
