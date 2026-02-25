@@ -1,6 +1,6 @@
 import utils, peers
 import std/[tables, asyncnet, asyncdispatch, strutils, math]
-import bencode
+import ../bencode/core
 
 type
   HandShake = object
@@ -93,8 +93,8 @@ proc create_handshake_msg(handshake: HandShake, extend: bool = false): array[68,
   assert currPos == 68
   return msg
 
-proc create_extend_msg(req_id: int, payload: Table): seq[byte] = 
-  let serialize = payload.toBencode()
+proc create_extend_msg(req_id: int, payload: BencodeObj): seq[byte] = 
+  let serialize = bEncode(payload)
 
   var ext_msg = newSeq[byte]()
   ext_msg.add(20'u8) # extended message ID
@@ -148,7 +148,12 @@ proc send_verify_handshake*(s: AsyncSocket, msg: Handshake): Future[bool] {.asyn
   try:
     let hmsg: array[68, byte] = create_handshake_msg(msg, true)
 
-    let payload = {"m": {"ut_metadata": 2, "metadata_size": 0}.toTable}.toTable
+    let payload = Bencode({
+      "m": Bencode({
+        "ut_metadata": Bencode(2),
+        "metadata_size": Bencode(0)
+      })
+    })
     let extend: seq[byte] = create_extend_msg(0, payload)
     let msglen = hmsg.len + extend.len
 
@@ -199,10 +204,10 @@ proc parseFileDict(node: BencodeObj): FileDict =
   for key, val in node.d.pairs:
     case key
     of "length":
-      if val.kind == Int:
+      if val.kind == bkInt:
         result.Length = val.i
     of "path":
-      if val.kind == List:
+      if val.kind == bkList:
         for item in val.l:
             result.Path = item.s
     else:
@@ -210,7 +215,7 @@ proc parseFileDict(node: BencodeObj): FileDict =
 
 proc parseFile(node: BencodeObj): seq[FileDict] = 
     result = @[]
-    if node.kind == List:
+    if node.kind == bkList:
         for item in node.l:
             result.add(parseFileDict(item))
 
@@ -264,7 +269,10 @@ proc request_metadata*(s: AsyncSocket, ut_id, piece: int): Future[TorrentMetadat
   var meta_info: MetaDataInfo
 
   while true:
-    let payload = {"msg_type": ord(Request), "piece": curr_piece }.toTable
+    let payload = Bencode({
+      "msg_type": Bencode(ord(Request)),
+      "piece": Bencode(curr_piece)
+    })
     let msg = create_extend_msg(ut_id, payload)
 
     await s.send(addr msg[0], msg.len)

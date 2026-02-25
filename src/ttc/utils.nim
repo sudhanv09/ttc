@@ -1,5 +1,4 @@
-import std/[strutils, algorithm, asyncdispatch, times]
-import nanoid
+import std/[strutils, algorithm, asyncdispatch, times, random]
 
 proc toBytes*(s: string): seq[byte] =
   result = newSeq[byte](s.len)
@@ -38,12 +37,15 @@ proc bToInt*(bytes: array[4, byte]): int =
 
   return result
 
-proc genPeerId*(): string = 
+proc genPeerId*(): string =
   const prefix = "-TT0001-"
-  let rndid = generate(alphabet="abcdefghijklmnopqrstuvwxyz", size=12)
-
+  const alphabet = "abcdefghijklmnopqrstuvwxyz"
+  randomize()
+  var rndid = ""
+  for _ in 0..<12:
+    rndid.add(alphabet[rand(alphabet.len - 1)])
   return prefix & rndid
-
+  
 proc awaitWithTimeout*[T](futures: seq[Future[T]], timeoutMs: int = 30_000): Future[seq[T]] {.async.} =
   ## Generic async function that waits for futures with a timeout.
   ## Returns all successfully completed results within the timeout period.

@@ -1,6 +1,6 @@
 import magnet, utils
 import std/[uri, strutils, asyncdispatch, httpclient, tables]
-import bencode
+import ../bencode/[core,types]
 
 type
   TrackerReq* = object
